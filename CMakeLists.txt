@@ -35,5 +35,5 @@ install(DIRECTORY include/${LIBRARY_NAME} DESTINATION include)
 
 include_directories(./include)
 
-add_executable(${EXECUTABLE_NAME} main.cpp include/chipsYolo/Model.hpp)
+add_executable(${EXECUTABLE_NAME} main.cpp include/chipsYolo/Yolo.hpp)
 target_link_libraries(${EXECUTABLE_NAME} chipsYolo ${TORCH_LIBRARIES})

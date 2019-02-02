@@ -1,14 +1,20 @@
 #include <iostream>
-#include <chipsYolo/Model.hpp>
+#include <chipsYolo/Yolo.hpp>
 #include <chipsYolo/ConfigLoader.hpp>
 
 int main() {
     std::cout << "Hello, World!" << std::endl;
 
-    ConfigLoader configLoader;
+    torch::DeviceType device_type;
 
-    configLoader.loadFromConfig("../cfg/yolov3.cfg");
+    if (torch::cuda::is_available() ) {
+        device_type = torch::kCUDA;
+    } else {
+        device_type = torch::kCPU;
+    }
+    torch::Device device(device_type);
 
-    int x = 5;
+    Yolo yolo("../cfg/yolov3.cfg", device);
+
     return 0;
 }
