@@ -14,7 +14,8 @@ int main() {
     }
     torch::Device device(device_type);
 
-    Yolo yolo("../cfg/yolov3.cfg", device);
+    Yolo yolo("../cfg/yolov3-tiny.cfg", device);
 
+    std::cout << yolo.size() << std::endl;
     return 0;
 }

@@ -1,11 +1,13 @@
 //
 // Created by chips on 02.02.19.
 //
+#ifndef CHIPSYOLOV3_LIBTORCH_CONFIGLOADER_HPP
+#define CHIPSYOLOV3_LIBTORCH_CONFIGLOADER_HPP
+
 #include <torch/torch.h>
 #include "Trimmer.hpp"
 
-#ifndef CHIPSYOLOV3_LIBTORCH_CONFIGLOADER_HPP
-#define CHIPSYOLOV3_LIBTORCH_CONFIGLOADER_HPP
+using Config = std::vector<std::map<std::string, std::string>>;
 
 class ConfigLoader {
 private:
