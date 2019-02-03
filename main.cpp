@@ -24,7 +24,6 @@ int main() {
     for(auto& layer : yolo.model()->modules()) {
         std::cout << i << "\t" << layer->name() << std::endl;
         i++;
-
     }
 
     std::cout << yolo.size() << std::endl;
@@ -34,11 +33,13 @@ int main() {
     torch::NoGradGuard no_grad;
     yolo.eval();
 
-    yolo.infer("/home/chips/Schreibtisch/person.jpg");
-    yolo.infer("/home/chips/Schreibtisch/person.jpg");
-    yolo.infer("/home/chips/Schreibtisch/person.jpg");
-    yolo.infer("/home/chips/Schreibtisch/person.jpg");
-    yolo.infer("/home/chips/Schreibtisch/person.jpg");
+    yolo.inferBoundingBox("/home/hornung/person.jpg");
+    yolo.inferBoundingBox("/home/hornung/person.jpg");
+    yolo.inferBoundingBox("/home/hornung/person.jpg");
+    yolo.inferBoundingBox("/home/hornung/person.jpg");
+    yolo.inferBoundingBox("/home/hornung/person.jpg");
+
+    yolo.inferBoundingBox("/home/hornung/person.jpg");
 
     return 0;
 }

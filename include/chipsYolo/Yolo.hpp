@@ -323,39 +323,53 @@ public:
         _model->eval();
     }
 
-    void infer(const std::string imgFile) {
+    /**
+     * Infers bounding boxes and returns them as a pytorch tensor.
+     * @param imgFile path to the image file
+     * @return pytorch tensor containing all bounding box information
+     */
+    torch::Tensor inferBoundingBox(const std::string imgFile) {
         cv::Mat origin_image, resized_image;
 
         origin_image = cv::imread(imgFile);
 
-        // input image size for YOLO v3
-        int input_image_size = 416;
         cv::cvtColor(origin_image, resized_image, cv::COLOR_RGB2BGR);
-        cv::resize(resized_image, resized_image, cv::Size(input_image_size, input_image_size));
+        cv::resize(resized_image, resized_image, cv::Size(_inputImgSize, _inputImgSize));
 
         cv::Mat img_float;
         resized_image.convertTo(img_float, CV_32F, 1.0 / 255);
 
         auto img_tensor = torch::CPU(torch::kFloat32).tensorFromBlob(img_float.data,
-                                                                     {1, input_image_size, input_image_size, 3});
+                                                                     {1, _inputImgSize, _inputImgSize, 3});
         img_tensor = img_tensor.permute({0, 3, 1, 2});
         auto img_var = torch::autograd::make_variable(img_tensor, false).to(_device);
 
         auto start = std::chrono::high_resolution_clock::now();
 
-        auto output = forward(img_var);
+        auto result = forward(img_var);
+
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        // It should be known that it takes longer time at first time
+        std::cout << "inference taken : " << duration.count() << " ms" << std::endl;
+
+        return result;
+    }
+
+    /**
+     * Predicts bounding boxes on an input image and writes it to the desired output file.
+     * @param imgFile
+     * @param outFile
+     */
+    void infer(const std::string imgFile, std::string outFile) {
+        cv::Mat origin_image = cv::imread(imgFile);
+
+        auto output = inferBoundingBox(imgFile);
 
         // filter result by NMS
         // class_num = 80
         // confidence = 0.6
         auto result = _drawer.write_results(output, 80, 0.6, 0.4);
-
-        auto end = std::chrono::high_resolution_clock::now();
-
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
-        // It should be known that it takes longer time at first time
-        std::cout << "inference taken : " << duration.count() << " ms" << std::endl;
 
         if (result.dim() == 1) {
             std::cout << "no object found" << std::endl;
@@ -364,8 +378,8 @@ public:
 
             std::cout << obj_num << " objects found" << std::endl;
 
-            float w_scale = float(origin_image.cols) / input_image_size;
-            float h_scale = float(origin_image.rows) / input_image_size;
+            float w_scale = float(origin_image.cols) / _inputImgSize;
+            float h_scale = float(origin_image.rows) / _inputImgSize;
 
             result.select(1, 1).mul_(w_scale);
             result.select(1, 2).mul_(h_scale);
@@ -379,7 +393,7 @@ public:
                               cv::Point(result_data[i][3], result_data[i][4]), cv::Scalar(0, 0, 255), 1, 1, 0);
             }
 
-            cv::imwrite("out-det.jpg", origin_image);
+            cv::imwrite(outFile, origin_image);
         }
     }
 
@@ -400,7 +414,6 @@ public:
 
         size_t i = 0; // position in module list
         for (int configPos = 1; configPos < blocks.size(); configPos++) {
-            std::cout << "layer " << configPos << "," << i << std::endl;
             std::map<string, string> block = blocks[configPos];
 
             string layer_type = block["type"];
