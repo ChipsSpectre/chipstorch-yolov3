@@ -20,8 +20,11 @@ int main() {
     yolo.loadWeights("../models/yolov3-tiny.weights");
     std::cout << "loaded weights." << std::endl;
 
+    int i = 0;
     for(auto& layer : yolo.model()->modules()) {
-        std::cout << layer->name() << std::endl;
+        std::cout << i << "\t" << layer->name() << std::endl;
+        i++;
+
     }
 
     std::cout << yolo.size() << std::endl;

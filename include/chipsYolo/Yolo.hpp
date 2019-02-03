@@ -340,7 +340,7 @@ public:
 
         auto start = std::chrono::high_resolution_clock::now();
 
-        auto output = _model->forward(img_var);
+        auto output = forward(img_var);
 
         // filter result by NMS
         // class_num = 80
@@ -381,6 +381,133 @@ public:
             cv::imwrite("out-det.jpg", origin_image);
         }
     }
+
+    torch::Tensor forward(torch::Tensor x)
+    {
+
+        torch::Tensor result;
+        int write = 0;
+
+        Config blocks = _configLoader.loadFromConfig(_configPath);
+        std::vector<torch::Tensor> outputs(size());
+
+        size_t i = 0; // position in module list
+        for (int configPos = 1; configPos < blocks.size(); configPos++)
+        {
+            std::cout << "layer " << configPos << "," << i << std::endl;
+            std::map<string, string> block = blocks[configPos];
+
+            string layer_type = block["type"];
+
+            if (layer_type == "net")
+                continue;
+
+            if (layer_type == "convolutional")
+            {
+                torch::nn::Conv2dImpl *seq_imp = dynamic_cast<torch::nn::Conv2dImpl *>(_model.ptr()->ptr(i).get());
+                x = seq_imp->forward(x);
+                i++;
+                int batch_normalize = get_int_from_cfg(block, "batch_normalize", 0);
+                std::string activation = get_string_from_cfg(block, "activation", "linear");
+
+                if(batch_normalize > 0) {
+                    torch::nn::BatchNormImpl * b_imp = dynamic_cast<torch::nn::BatchNormImpl *>(_model.ptr()->ptr(i).get());
+                    x = b_imp->forward(x);
+                    i++;
+                }
+                if(activation == "leaky") {
+                    torch::nn::FunctionalImpl * f_imp = dynamic_cast<torch::nn::FunctionalImpl *>(_model.ptr()->ptr(i).get());
+                    x = f_imp->forward(x);
+                    i++;
+                }
+
+                outputs[configPos] = x;
+            }
+            if(layer_type == "maxpool") {
+                MaxPool2DImpl seq_imp = *(dynamic_cast<MaxPool2DImpl *>(_model.ptr()->ptr(i).get()));
+                x = seq_imp.forward(x);
+                outputs[configPos] = x;
+                i++;
+            }
+            if(layer_type == "upsample") {
+                UpsampleLayerImpl seq_imp = *(dynamic_cast<UpsampleLayerImpl *>(_model.ptr()->ptr(i).get()));
+                x = seq_imp.forward(x);
+                outputs[configPos] = x;
+                i++;
+            }
+            else if (layer_type == "route")
+            {
+                string layers_info = get_string_from_cfg(block, "layers", "");
+
+                std::vector<string> layers;
+                _splitter.split(layers_info, layers, ",");
+
+                std::string::size_type sz;
+                signed int start = std::stoi(layers[0], &sz);
+                signed int end = 0;
+
+                if (layers.size() > 1) {
+                    end = std::stoi(layers[1], &sz);
+                }
+
+                if (start > 0) start = start - configPos;
+
+                if (end > 0) end = end - configPos + 1; // add one, since first layer is sequential
+
+                if (start > 0) start = start - i;
+
+                if (end == 0)
+                {
+                    x = outputs[configPos + start];
+                }
+                else
+                {
+                    if (end > 0) end = end - i;
+
+                    torch::Tensor map_1 = outputs[configPos + start];
+                    torch::Tensor map_2 = outputs[configPos + end];
+
+                    x = torch::cat({map_1, map_2}, 1);
+                }
+
+                outputs[configPos] = x;
+                i++;
+            }
+            else if (layer_type == "shortcut")
+            {
+                int from = std::stoi(block["from"]);
+                x = outputs[i-1] + outputs[i+from];
+                outputs[configPos] = x;
+
+                i++; // skip corresponding identity layer in module list
+            }
+            else if (layer_type == "yolo")
+            {
+                DetectionLayerImpl seq_imp = *(dynamic_cast<DetectionLayerImpl *>(_model.ptr()->ptr(i).get()));
+                i++;
+
+                std::map<string, string> net_info = blocks[0];
+                int inp_dim = get_int_from_cfg(net_info, "height", 0);
+                int num_classes = get_int_from_cfg(block, "classes", 0);
+
+                x = seq_imp.forward(x);
+
+                if (write == 0)
+                {
+                    result = x;
+                    write = 1;
+                }
+                else
+                {
+                    result = torch::cat({result,x}, 1);
+                }
+
+                outputs[configPos] = outputs[i-1];
+            }
+        }
+        return result;
+    }
+
 private:
     const std::string &_configPath;
     const torch::Device &_device;
