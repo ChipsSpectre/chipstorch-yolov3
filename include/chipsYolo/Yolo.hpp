@@ -8,6 +8,11 @@
 #include <iostream>
 #include <torch/torch.h>
 #include "ConfigLoader.hpp"
+#include "DetectionLayer.hpp"
+#include "IdentityLayer.hpp"
+#include "MaxPool2D.hpp"
+#include "Splitter.hpp"
+#include "UpsampleLayer.hpp"
 
 /**
  * Yolo is a class that encapsulates the torch::nn Modules that are needed to run the yolov3 and related configurations.
@@ -84,7 +89,7 @@ private:
 
         torch::nn::Sequential module;
 
-        for (int i = 0, len = blocks.size(); i < len; i++) {
+        for (std::size_t i = 0, len = blocks.size(); i < len; i++) {
             std::map<string, string> block = blocks[i];
 
             string layer_type = block["type"];
@@ -102,6 +107,99 @@ private:
 
                 addConvLayer(module, activation, batch_normalize, filters, padding, kernel_size, stride, prev_filters);
             }
+            else if (layer_type == "upsample")
+            {
+                int stride = get_int_from_cfg(block, "stride", 1);
+
+                UpsampleLayer uplayer(stride);
+                module->push_back(uplayer);
+            }
+            else if (layer_type == "maxpool")
+            {
+                int stride = get_int_from_cfg(block, "stride", 1);
+                int size = get_int_from_cfg(block, "size", 1);
+
+                MaxPool2D poolLayer(size, stride);
+                module->push_back(poolLayer);
+            }
+            else if (layer_type == "shortcut")
+            {
+                // skip connection
+                int from = get_int_from_cfg(block, "from", 0);
+                block["from"] = std::to_string(from);
+
+                blocks[i] = block;
+
+                // placeholder
+                IdentityLayer layer;
+                module->push_back(layer);
+            }
+            else if (layer_type == "route")
+            {
+                // L 85: -1, 61
+                string layers_info = get_string_from_cfg(block, "layers", "");
+
+                std::vector<string> layers;
+                _splitter.split(layers_info, layers, ",");
+
+                std::string::size_type sz;
+                signed int start = std::stoi(layers[0], &sz);
+                signed int end = 0;
+
+                if (layers.size() > 1)
+                {
+                    end = std::stoi(layers[1], &sz);
+                }
+
+                if (start > 0)	start = start - index;
+
+                if (end > 0) end = end - index;
+
+                block["start"] = std::to_string(start);
+                block["end"] = std::to_string(end);
+
+                blocks[i] = block;
+
+                // placeholder
+                IdentityLayer layer;
+                module->push_back(layer);
+
+                if (end < 0)
+                {
+                    filters = output_filters[index + start] + output_filters[index + end];
+                }
+                else
+                {
+                    filters = output_filters[index + start];
+                }
+            }
+            else if (layer_type == "yolo")
+            {
+                string mask_info = get_string_from_cfg(block, "mask", "");
+                std::vector<int> masks;
+                _splitter.split(mask_info, masks, ",");
+
+                string anchor_info = get_string_from_cfg(block, "anchors", "");
+                std::vector<int> anchors;
+                _splitter.split(anchor_info, anchors, ",");
+
+                std::vector<float> anchor_points;
+                int pos;
+                for (int i = 0; i< masks.size(); i++)
+                {
+                    pos = masks[i];
+                    anchor_points.push_back(anchors[pos * 2]);
+                    anchor_points.push_back(anchors[pos * 2+1]);
+                }
+
+                DetectionLayer layer(anchor_points);
+                module->push_back(layer);
+            }
+            else
+            {
+                std::string errorMsg = "Unsupported operator: " + layer_type;
+                throw std::runtime_error(errorMsg);
+            }
 
             prev_filters = filters;
             output_filters.push_back(filters);
@@ -118,6 +216,7 @@ private:
 public:
     Yolo(const std::string &cfgFile, const torch::Device &device)
             : _device(device),
+              _splitter(),
               _configLoader(),
               _model(loadModel(_configLoader.loadFromConfig(cfgFile))) {
     }
@@ -132,6 +231,7 @@ public:
 
 private:
     const torch::Device &_device;
+    Splitter _splitter;
     ConfigLoader _configLoader;
     const torch::nn::Sequential _model;
 };

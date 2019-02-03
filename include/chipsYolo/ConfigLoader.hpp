@@ -5,21 +5,17 @@
 #define CHIPSYOLOV3_LIBTORCH_CONFIGLOADER_HPP
 
 #include <torch/torch.h>
+#include "Splitter.hpp"
 #include "Trimmer.hpp"
 
 using Config = std::vector<std::map<std::string, std::string>>;
 
 class ConfigLoader {
 private:
-    template<typename Out>
-    void split(const std::string &s, char delim, Out result) {
-        std::stringstream ss(s);
-        std::string item;
-        while (std::getline(ss, item, delim)) {
-            *(result++) = item;
-        }
-    }
+    Splitter _splitter;
 public:
+    ConfigLoader()
+        : _splitter() {}
     /**
      *  Reads a darknet-formatted config file and extracts the structural information out it.
      *
@@ -63,7 +59,7 @@ public:
 
                 std::vector<string> op_info;
 
-                split(line, '=', std::back_inserter(op_info));
+                _splitter.split(line, op_info, "=");
 
                 if (op_info.size() == 2)
                 {
