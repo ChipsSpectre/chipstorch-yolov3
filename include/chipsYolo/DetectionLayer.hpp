@@ -10,13 +10,20 @@
 class DetectionLayerImpl : public torch::nn::Module {
 private:
     std::vector<float> _anchors;
+    int _input_dim;
+    int _num_classes;
+    const torch::Device& _device;
 public:
-    DetectionLayerImpl(std::vector<float> anchors) {
-        _anchors = anchors;
+    DetectionLayerImpl(std::vector<float> anchors, int inp_dim, int num_classes, const torch::Device& device)
+        : _anchors(anchors),
+        _input_dim(inp_dim),
+        _num_classes(num_classes),
+        _device(device)
+    {
     }
 
-    torch::Tensor forward(torch::Tensor prediction, int inp_dim, int num_classes, torch::Device device) {
-        return predict_transform(prediction, inp_dim, _anchors, num_classes, device);
+    torch::Tensor forward(torch::Tensor prediction) {
+        return predict_transform(prediction, _input_dim, _anchors, _num_classes, _device);
     }
 
     torch::Tensor predict_transform(torch::Tensor prediction, int inp_dim, std::vector<float> anchors, int num_classes,

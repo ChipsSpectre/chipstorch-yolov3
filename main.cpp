@@ -18,11 +18,24 @@ int main() {
     Yolo yolo(configPath, device);
 
     yolo.loadWeights("../models/yolov3-tiny.weights");
+    std::cout << "loaded weights." << std::endl;
 
     for(auto& layer : yolo.model()->modules()) {
         std::cout << layer->name() << std::endl;
     }
 
     std::cout << yolo.size() << std::endl;
+
+    yolo.toDevice();
+
+    torch::NoGradGuard no_grad;
+    yolo.eval();
+
+    yolo.infer("/home/chips/Schreibtisch/person.jpg");
+    yolo.infer("/home/chips/Schreibtisch/person.jpg");
+    yolo.infer("/home/chips/Schreibtisch/person.jpg");
+    yolo.infer("/home/chips/Schreibtisch/person.jpg");
+    yolo.infer("/home/chips/Schreibtisch/person.jpg");
+
     return 0;
 }

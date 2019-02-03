@@ -6,13 +6,20 @@
 #define CHIPSYOLOV3_LIBTORCH_MODEL_HPP
 
 #include <iostream>
+#include <chrono>
 #include <torch/torch.h>
 #include "ConfigLoader.hpp"
 #include "DetectionLayer.hpp"
+#include "Drawer.hpp"
 #include "IdentityLayer.hpp"
 #include "MaxPool2D.hpp"
 #include "Splitter.hpp"
 #include "UpsampleLayer.hpp"
+
+#include <vector>
+
+#include <opencv2/opencv.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
 
 /**
  * Yolo is a class that encapsulates the torch::nn Modules that are needed to run the yolov3 and related configurations.
@@ -94,8 +101,10 @@ private:
 
             string layer_type = block["type"];
 
-            if (layer_type == "net")
+            if (layer_type == "net") {
+                _input_dim = std::stoi(block["width"]);
                 continue;
+            }
 
             if (layer_type == "convolutional") {
                 string activation = get_string_from_cfg(block, "activation", "");
@@ -177,7 +186,9 @@ private:
                     anchor_points.push_back(anchors[pos * 2 + 1]);
                 }
 
-                DetectionLayer layer(anchor_points);
+                int numClasses = get_int_from_cfg(block, "classes", 80);
+
+                DetectionLayer layer(anchor_points, _input_dim, numClasses, _device);
                 module->push_back(layer);
             } else {
                 std::string errorMsg = "Unsupported operator: " + layer_type;
@@ -302,12 +313,82 @@ public:
         return _model;
     }
 
+    void toDevice() {
+        _model->to(_device);
+    }
+
+    void eval() {
+        _model->eval();
+    }
+
+    void infer(const std::string imgFile) {
+        cv::Mat origin_image, resized_image;
+
+        origin_image = cv::imread(imgFile);
+
+        // input image size for YOLO v3
+        int input_image_size = 416;
+        cv::cvtColor(origin_image, resized_image,  cv::COLOR_RGB2BGR);
+        cv::resize(resized_image, resized_image, cv::Size(input_image_size, input_image_size));
+
+        cv::Mat img_float;
+        resized_image.convertTo(img_float, CV_32F, 1.0/255);
+
+        auto img_tensor = torch::CPU(torch::kFloat32).tensorFromBlob(img_float.data, {1, input_image_size, input_image_size, 3});
+        img_tensor = img_tensor.permute({0,3,1,2});
+        auto img_var = torch::autograd::make_variable(img_tensor, false).to(_device);
+
+        auto start = std::chrono::high_resolution_clock::now();
+
+        auto output = _model->forward(img_var);
+
+        // filter result by NMS
+        // class_num = 80
+        // confidence = 0.6
+        auto result = _drawer.write_results(output, 80, 0.6, 0.4);
+
+        auto end = std::chrono::high_resolution_clock::now();
+
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+        // It should be known that it takes longer time at first time
+        std::cout << "inference taken : " << duration.count() << " ms" << std::endl;
+
+        if (result.dim() == 1)
+        {
+            std::cout << "no object found" << std::endl;
+        }
+        else {
+            int obj_num = result.size(0);
+
+            std::cout << obj_num << " objects found" << std::endl;
+
+            float w_scale = float(origin_image.cols) / input_image_size;
+            float h_scale = float(origin_image.rows) / input_image_size;
+
+            result.select(1, 1).mul_(w_scale);
+            result.select(1, 2).mul_(h_scale);
+            result.select(1, 3).mul_(w_scale);
+            result.select(1, 4).mul_(h_scale);
+
+            auto result_data = result.accessor<float, 2>();
+
+            for (int i = 0; i < result.size(0); i++) {
+                cv::rectangle(origin_image, cv::Point(result_data[i][1], result_data[i][2]),
+                              cv::Point(result_data[i][3], result_data[i][4]), cv::Scalar(0, 0, 255), 1, 1, 0);
+            }
+
+            cv::imwrite("out-det.jpg", origin_image);
+        }
+    }
 private:
     const std::string &_configPath;
     const torch::Device &_device;
     Splitter _splitter;
     ConfigLoader _configLoader;
+    Drawer _drawer;
     torch::nn::Sequential _model;
+    int _input_dim;
 };
 
 #endif //CHIPSYOLOV3_LIBTORCH_MODEL_HPP

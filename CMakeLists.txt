@@ -6,6 +6,12 @@ set(CMAKE_CXX_STANDARD 14)
 set(LIBRARY_NAME "chipsYolo")
 set(EXECUTABLE_NAME "chipsYoloRunner")
 
+# include openCV
+find_package( OpenCV REQUIRED )
+include_directories( ${OpenCV_INCLUDE_DIRS} )
+
+message(${OpenCV_INCLUDE_DIRS})
+
 # get pytorch, if not already available
 message("${CMAKE_CURRENT_SOURCE_DIR}")
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/libtorch/build-version")
@@ -36,4 +42,5 @@ install(DIRECTORY include/${LIBRARY_NAME} DESTINATION include)
 include_directories(./include)
 
 add_executable(${EXECUTABLE_NAME} main.cpp include/chipsYolo/Yolo.hpp)
-target_link_libraries(${EXECUTABLE_NAME} chipsYolo ${TORCH_LIBRARIES})
+message(${OpenCV_LIBS})
+target_link_libraries(${EXECUTABLE_NAME} chipsYolo ${TORCH_LIBRARIES} ${OpenCV_LIBS})
