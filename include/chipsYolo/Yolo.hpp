@@ -101,8 +101,7 @@ private:
 
             string layer_type = block["type"];
 
-            if (layer_type == "net") {
-                _input_dim = std::stoi(block["width"]);
+            if(layer_type == "net") {
                 continue;
             }
 
@@ -188,7 +187,7 @@ private:
 
                 int numClasses = get_int_from_cfg(block, "classes", 80);
 
-                DetectionLayer layer(anchor_points, _input_dim, numClasses, _device);
+                DetectionLayer layer(anchor_points, _inputImgSize, numClasses, _device);
                 module->push_back(layer);
             } else {
                 std::string errorMsg = "Unsupported operator: " + layer_type;
@@ -208,11 +207,12 @@ private:
     }
 
 public:
-    Yolo(const std::string &cfgFile, const torch::Device &device)
+    Yolo(const std::string &cfgFile, const torch::Device &device, int inputImgSize)
             : _configPath(cfgFile),
               _device(device),
               _splitter(),
               _configLoader(),
+              _inputImgSize(inputImgSize),
               _model(loadModel(_configLoader.loadFromConfig(cfgFile))) {
     }
 
@@ -476,7 +476,7 @@ public:
             else if (layer_type == "shortcut")
             {
                 int from = std::stoi(block["from"]);
-                x = outputs[i-1] + outputs[i+from];
+                x = outputs[configPos-1] + outputs[configPos+from];
                 outputs[configPos] = x;
 
                 i++; // skip corresponding identity layer in module list
@@ -502,7 +502,7 @@ public:
                     result = torch::cat({result,x}, 1);
                 }
 
-                outputs[configPos] = outputs[i-1];
+                outputs[configPos] = outputs[configPos-1];
             }
         }
         return result;
@@ -514,6 +514,7 @@ private:
     Splitter _splitter;
     ConfigLoader _configLoader;
     Drawer _drawer;
+    int _inputImgSize;
     torch::nn::Sequential _model;
     int _input_dim;
 };
