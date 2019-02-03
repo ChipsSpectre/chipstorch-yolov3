@@ -37,7 +37,7 @@ private:
     }
 
     torch::nn::Conv2dOptions conv_options(int64_t in_planes, int64_t out_planes, int64_t kerner_size,
-                                          int64_t stride, int64_t padding, int64_t groups, bool with_bias=false){
+                                          int64_t stride, int64_t padding, int64_t groups, bool with_bias = false) {
         torch::nn::Conv2dOptions conv_options = torch::nn::Conv2dOptions(in_planes, out_planes, kerner_size);
         conv_options.stride_ = stride;
         conv_options.padding_ = padding;
@@ -46,7 +46,7 @@ private:
         return conv_options;
     }
 
-    torch::nn::BatchNormOptions bn_options(int64_t features){
+    torch::nn::BatchNormOptions bn_options(int64_t features) {
         torch::nn::BatchNormOptions bn_options = torch::nn::BatchNormOptions(features);
         bn_options.affine_ = true;
         bn_options.stateful_ = true;
@@ -54,7 +54,7 @@ private:
     }
 
     void
-    addConvLayer(torch::nn::Sequential& module, string activation, int batch_normalize,
+    addConvLayer(torch::nn::Sequential &module, string activation, int batch_normalize,
                  int filters, int padding, int kernel_size, int stride, int prev_filters) {
         int pad = padding > 0 ? (kernel_size - 1) / 2 : 0;
         bool with_bias = batch_normalize > 0 ? false : true;
@@ -106,24 +106,18 @@ private:
                 int stride = get_int_from_cfg(block, "stride", 1);
 
                 addConvLayer(module, activation, batch_normalize, filters, padding, kernel_size, stride, prev_filters);
-            }
-            else if (layer_type == "upsample")
-            {
+            } else if (layer_type == "upsample") {
                 int stride = get_int_from_cfg(block, "stride", 1);
 
                 UpsampleLayer uplayer(stride);
                 module->push_back(uplayer);
-            }
-            else if (layer_type == "maxpool")
-            {
+            } else if (layer_type == "maxpool") {
                 int stride = get_int_from_cfg(block, "stride", 1);
                 int size = get_int_from_cfg(block, "size", 1);
 
                 MaxPool2D poolLayer(size, stride);
                 module->push_back(poolLayer);
-            }
-            else if (layer_type == "shortcut")
-            {
+            } else if (layer_type == "shortcut") {
                 // skip connection
                 int from = get_int_from_cfg(block, "from", 0);
                 block["from"] = std::to_string(from);
@@ -133,9 +127,7 @@ private:
                 // placeholder
                 IdentityLayer layer;
                 module->push_back(layer);
-            }
-            else if (layer_type == "route")
-            {
+            } else if (layer_type == "route") {
                 // L 85: -1, 61
                 string layers_info = get_string_from_cfg(block, "layers", "");
 
@@ -146,12 +138,11 @@ private:
                 signed int start = std::stoi(layers[0], &sz);
                 signed int end = 0;
 
-                if (layers.size() > 1)
-                {
+                if (layers.size() > 1) {
                     end = std::stoi(layers[1], &sz);
                 }
 
-                if (start > 0)	start = start - index;
+                if (start > 0) start = start - index;
 
                 if (end > 0) end = end - index;
 
@@ -164,17 +155,12 @@ private:
                 IdentityLayer layer;
                 module->push_back(layer);
 
-                if (end < 0)
-                {
+                if (end < 0) {
                     filters = output_filters[index + start] + output_filters[index + end];
-                }
-                else
-                {
+                } else {
                     filters = output_filters[index + start];
                 }
-            }
-            else if (layer_type == "yolo")
-            {
+            } else if (layer_type == "yolo") {
                 string mask_info = get_string_from_cfg(block, "mask", "");
                 std::vector<int> masks;
                 _splitter.split(mask_info, masks, ",");
@@ -185,18 +171,15 @@ private:
 
                 std::vector<float> anchor_points;
                 int pos;
-                for (int i = 0; i< masks.size(); i++)
-                {
+                for (int i = 0; i < masks.size(); i++) {
                     pos = masks[i];
                     anchor_points.push_back(anchors[pos * 2]);
-                    anchor_points.push_back(anchors[pos * 2+1]);
+                    anchor_points.push_back(anchors[pos * 2 + 1]);
                 }
 
                 DetectionLayer layer(anchor_points);
                 module->push_back(layer);
-            }
-            else
-            {
+            } else {
                 std::string errorMsg = "Unsupported operator: " + layer_type;
                 throw std::runtime_error(errorMsg);
             }
@@ -215,7 +198,8 @@ private:
 
 public:
     Yolo(const std::string &cfgFile, const torch::Device &device)
-            : _device(device),
+            : _configPath(cfgFile),
+              _device(device),
               _splitter(),
               _configLoader(),
               _model(loadModel(_configLoader.loadFromConfig(cfgFile))) {
@@ -229,11 +213,101 @@ public:
         return _model->size();
     }
 
+    void loadWeights(const std::string &fileName) {
+        std::ifstream fs(fileName, std::ios::binary);
+
+        // header info: 5 * int32_t
+        int32_t header_size = sizeof(int32_t) * 5;
+
+        int64_t index_weight = 0;
+
+        fs.seekg(0, fs.end);
+        int64_t length = fs.tellg();
+        // skip header
+        length = length - header_size;
+
+        fs.seekg(header_size, fs.beg);
+        float *weights_src = (float *) malloc(length);
+        fs.read(reinterpret_cast<char *>(weights_src), length);
+
+        fs.close();
+
+        at::TensorOptions options = torch::TensorOptions()
+                .dtype(torch::kFloat32)
+                .is_variable(true);
+        at::Tensor weights = torch::CPU(torch::kFloat32).tensorFromBlob(weights_src, {length / 4});
+
+        Config config = _configLoader.loadConvFromConfig(_configPath);
+        int configPos = 0; // points to the position of the current conv layer
+
+        for (size_t i = 0; i < size(); i++) {
+            auto layer = _model.ptr()->ptr(i);
+            if (layer->name() != "torch::nn::Conv2dImpl") {
+                continue; // only load weights for conv-layers!
+            }
+            torch::nn::Conv2dImpl *conv_imp = dynamic_cast<torch::nn::Conv2dImpl *>(layer.get());
+            std::map<string, string> module_info = config[configPos];
+
+            int batch_normalize = get_int_from_cfg(module_info, "batch_normalize", 0);
+            if (batch_normalize > 0) {
+                auto bn_module = _model.ptr()->ptr(i + 1);
+
+                torch::nn::BatchNormImpl *bn_imp = dynamic_cast<torch::nn::BatchNormImpl *>(bn_module.get());
+
+                int num_bn_biases = bn_imp->bias.numel();
+
+                at::Tensor bn_bias = weights.slice(0, index_weight, index_weight + num_bn_biases);
+                index_weight += num_bn_biases;
+
+                at::Tensor bn_weights = weights.slice(0, index_weight, index_weight + num_bn_biases);
+                index_weight += num_bn_biases;
+
+                at::Tensor bn_running_mean = weights.slice(0, index_weight, index_weight + num_bn_biases);
+                index_weight += num_bn_biases;
+
+                at::Tensor bn_running_var = weights.slice(0, index_weight, index_weight + num_bn_biases);
+                index_weight += num_bn_biases;
+
+                bn_bias = bn_bias.view_as(bn_imp->bias);
+                bn_weights = bn_weights.view_as(bn_imp->weight);
+                bn_running_mean = bn_running_mean.view_as(bn_imp->running_mean);
+                bn_running_var = bn_running_var.view_as(bn_imp->running_variance);
+
+                bn_imp->bias.set_data(bn_bias);
+                bn_imp->weight.set_data(bn_weights);
+                bn_imp->running_mean.set_data(bn_running_mean);
+                bn_imp->running_variance.set_data(bn_running_var);
+            }else {
+                int num_conv_biases = conv_imp->bias.numel();
+
+                at::Tensor conv_bias = weights.slice(0, index_weight, index_weight + num_conv_biases);
+                index_weight += num_conv_biases;
+
+                conv_bias = conv_bias.view_as(conv_imp->bias);
+                conv_imp->bias.set_data(conv_bias);
+            }
+
+            int num_weights = conv_imp->weight.numel();
+
+            at::Tensor conv_weights = weights.slice(0, index_weight, index_weight + num_weights);
+            index_weight += num_weights;
+
+            conv_weights = conv_weights.view_as(conv_imp->weight);
+            conv_imp->weight.set_data(conv_weights);
+            configPos++;
+        }
+    }
+
+    torch::nn::Sequential &model() {
+        return _model;
+    }
+
 private:
+    const std::string &_configPath;
     const torch::Device &_device;
     Splitter _splitter;
     ConfigLoader _configLoader;
-    const torch::nn::Sequential _model;
+    torch::nn::Sequential _model;
 };
 
 #endif //CHIPSYOLOV3_LIBTORCH_MODEL_HPP

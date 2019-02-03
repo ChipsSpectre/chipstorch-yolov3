@@ -7,14 +7,21 @@ int main() {
 
     torch::DeviceType device_type;
 
-    if (torch::cuda::is_available() ) {
+    if (torch::cuda::is_available()) {
         device_type = torch::kCUDA;
     } else {
         device_type = torch::kCPU;
     }
     torch::Device device(device_type);
 
-    Yolo yolo("../cfg/yolov3-tiny.cfg", device);
+    std::string configPath = "../cfg/yolov3-tiny.cfg";
+    Yolo yolo(configPath, device);
+
+    yolo.loadWeights("../models/yolov3-tiny.weights");
+
+    for(auto& layer : yolo.model()->modules()) {
+        std::cout << layer->name() << std::endl;
+    }
 
     std::cout << yolo.size() << std::endl;
     return 0;

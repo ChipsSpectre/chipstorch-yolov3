@@ -74,6 +74,20 @@ public:
         return blocks;
     }
 
-};
+    Config loadConvFromConfig(const std::string& cfgFile) {
+        Config fullConfig = loadFromConfig(cfgFile);
+
+        Config result;
+        for(std::map<std::string, std::string> block : fullConfig) {
+            string module_type = block["type"];
+            if (module_type == "convolutional") {
+                result.push_back(block);
+            }
+        }
+        return result;
+    }
+
+
+    };
 
 #endif //CHIPSYOLOV3_LIBTORCH_CONFIGLOADER_HPP
