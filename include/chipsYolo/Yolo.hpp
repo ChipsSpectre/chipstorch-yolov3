@@ -12,6 +12,7 @@
 #include "DetectionLayer.hpp"
 #include "Drawer.hpp"
 #include "IdentityLayer.hpp"
+#include "IOHandler.hpp"
 #include "MaxPool2D.hpp"
 #include "Splitter.hpp"
 #include "UpsampleLayer.hpp"
@@ -101,7 +102,7 @@ private:
 
             string layer_type = block["type"];
 
-            if(layer_type == "net") {
+            if (layer_type == "net") {
                 continue;
             }
 
@@ -207,6 +208,13 @@ private:
     }
 
 public:
+    /**
+     * Creates a new Yolo object. The device of the network and the input image size
+     * are fixed for a specific instance of Yolo.
+     * @param cfgFile - path to the darknet-style formatted configuration file.
+     * @param device - torch device (cpu or gpu)
+     * @param inputImgSize - size of the input image. image is assumed to be square (inputImgSize x inputImgSize)
+     */
     Yolo(const std::string &cfgFile, const torch::Device &device, int inputImgSize)
             : _configPath(cfgFile),
               _device(device),
@@ -224,33 +232,20 @@ public:
         return _model->size();
     }
 
+    /**
+     * Loads the weights from a file.
+     *
+     * The file is supposed to be binary and darknet-formatted.
+     *
+     * @param fileName - path to the file (should be possible to open it directly).
+     */
     void loadWeights(const std::string &fileName) {
-        std::ifstream fs(fileName, std::ios::binary);
-
-        // header info: 5 * int32_t
-        int32_t header_size = sizeof(int32_t) * 5;
-
-        int64_t index_weight = 0;
-
-        fs.seekg(0, fs.end);
-        int64_t length = fs.tellg();
-        // skip header
-        length = length - header_size;
-
-        fs.seekg(header_size, fs.beg);
-        float *weights_src = (float *) malloc(length);
-        fs.read(reinterpret_cast<char *>(weights_src), length);
-
-        fs.close();
-
-        at::TensorOptions options = torch::TensorOptions()
-                .dtype(torch::kFloat32)
-                .is_variable(true);
-        at::Tensor weights = torch::CPU(torch::kFloat32).tensorFromBlob(weights_src, {length / 4});
+        at::Tensor weights = IOHandler::readTensorFromFile(fileName);
 
         Config config = _configLoader.loadConvFromConfig(_configPath);
         int configPos = 0; // points to the position of the current conv layer
 
+        int64_t index_weight = 0;
         for (size_t i = 0; i < size(); i++) {
             auto layer = _model.ptr()->ptr(i);
             if (layer->name() != "torch::nn::Conv2dImpl") {
@@ -260,12 +255,13 @@ public:
             std::map<string, string> module_info = config[configPos];
 
             int batch_normalize = get_int_from_cfg(module_info, "batch_normalize", 0);
+
             if (batch_normalize > 0) {
                 auto bn_module = _model.ptr()->ptr(i + 1);
 
                 torch::nn::BatchNormImpl *bn_imp = dynamic_cast<torch::nn::BatchNormImpl *>(bn_module.get());
 
-                int num_bn_biases = bn_imp->bias.numel();
+                int64_t num_bn_biases = bn_imp->bias.numel();
 
                 at::Tensor bn_bias = weights.slice(0, index_weight, index_weight + num_bn_biases);
                 index_weight += num_bn_biases;
@@ -288,8 +284,8 @@ public:
                 bn_imp->weight.set_data(bn_weights);
                 bn_imp->running_mean.set_data(bn_running_mean);
                 bn_imp->running_variance.set_data(bn_running_var);
-            }else {
-                int num_conv_biases = conv_imp->bias.numel();
+            } else {
+                int64_t num_conv_biases = conv_imp->bias.numel();
 
                 at::Tensor conv_bias = weights.slice(0, index_weight, index_weight + num_conv_biases);
                 index_weight += num_conv_biases;
@@ -298,7 +294,7 @@ public:
                 conv_imp->bias.set_data(conv_bias);
             }
 
-            int num_weights = conv_imp->weight.numel();
+            int64_t num_weights = conv_imp->weight.numel();
 
             at::Tensor conv_weights = weights.slice(0, index_weight, index_weight + num_weights);
             index_weight += num_weights;
@@ -313,10 +309,16 @@ public:
         return _model;
     }
 
+    /**
+     * Moves the current model to the specified device.
+     */
     void toDevice() {
         _model->to(_device);
     }
 
+    /**
+     *  Disables training mode and switches to evaluation mode.
+     */
     void eval() {
         _model->eval();
     }
@@ -328,14 +330,15 @@ public:
 
         // input image size for YOLO v3
         int input_image_size = 416;
-        cv::cvtColor(origin_image, resized_image,  cv::COLOR_RGB2BGR);
+        cv::cvtColor(origin_image, resized_image, cv::COLOR_RGB2BGR);
         cv::resize(resized_image, resized_image, cv::Size(input_image_size, input_image_size));
 
         cv::Mat img_float;
-        resized_image.convertTo(img_float, CV_32F, 1.0/255);
+        resized_image.convertTo(img_float, CV_32F, 1.0 / 255);
 
-        auto img_tensor = torch::CPU(torch::kFloat32).tensorFromBlob(img_float.data, {1, input_image_size, input_image_size, 3});
-        img_tensor = img_tensor.permute({0,3,1,2});
+        auto img_tensor = torch::CPU(torch::kFloat32).tensorFromBlob(img_float.data,
+                                                                     {1, input_image_size, input_image_size, 3});
+        img_tensor = img_tensor.permute({0, 3, 1, 2});
         auto img_var = torch::autograd::make_variable(img_tensor, false).to(_device);
 
         auto start = std::chrono::high_resolution_clock::now();
@@ -354,11 +357,9 @@ public:
         // It should be known that it takes longer time at first time
         std::cout << "inference taken : " << duration.count() << " ms" << std::endl;
 
-        if (result.dim() == 1)
-        {
+        if (result.dim() == 1) {
             std::cout << "no object found" << std::endl;
-        }
-        else {
+        } else {
             int obj_num = result.size(0);
 
             std::cout << obj_num << " objects found" << std::endl;
@@ -382,9 +383,15 @@ public:
         }
     }
 
-    torch::Tensor forward(torch::Tensor x)
-    {
-
+    /**
+     * Performs forward pass.
+     *
+     * Custom implementation needed because of the use of shortcut and routing layers that depend on the
+     * input of previous layers (not necessarily only the direct predecessors).
+     * @param x - input tensor, i.e. the image
+     * @return the resulting bounding boxes
+     */
+    torch::Tensor forward(torch::Tensor x) {
         torch::Tensor result;
         int write = 0;
 
@@ -392,8 +399,7 @@ public:
         std::vector<torch::Tensor> outputs(size());
 
         size_t i = 0; // position in module list
-        for (int configPos = 1; configPos < blocks.size(); configPos++)
-        {
+        for (int configPos = 1; configPos < blocks.size(); configPos++) {
             std::cout << "layer " << configPos << "," << i << std::endl;
             std::map<string, string> block = blocks[configPos];
 
@@ -402,41 +408,40 @@ public:
             if (layer_type == "net")
                 continue;
 
-            if (layer_type == "convolutional")
-            {
+            if (layer_type == "convolutional") {
                 torch::nn::Conv2dImpl *seq_imp = dynamic_cast<torch::nn::Conv2dImpl *>(_model.ptr()->ptr(i).get());
                 x = seq_imp->forward(x);
                 i++;
                 int batch_normalize = get_int_from_cfg(block, "batch_normalize", 0);
                 std::string activation = get_string_from_cfg(block, "activation", "linear");
 
-                if(batch_normalize > 0) {
-                    torch::nn::BatchNormImpl * b_imp = dynamic_cast<torch::nn::BatchNormImpl *>(_model.ptr()->ptr(i).get());
+                if (batch_normalize > 0) {
+                    torch::nn::BatchNormImpl *b_imp = dynamic_cast<torch::nn::BatchNormImpl *>(_model.ptr()->ptr(
+                            i).get());
                     x = b_imp->forward(x);
                     i++;
                 }
-                if(activation == "leaky") {
-                    torch::nn::FunctionalImpl * f_imp = dynamic_cast<torch::nn::FunctionalImpl *>(_model.ptr()->ptr(i).get());
+                if (activation == "leaky") {
+                    torch::nn::FunctionalImpl *f_imp = dynamic_cast<torch::nn::FunctionalImpl *>(_model.ptr()->ptr(
+                            i).get());
                     x = f_imp->forward(x);
                     i++;
                 }
 
                 outputs[configPos] = x;
             }
-            if(layer_type == "maxpool") {
+            if (layer_type == "maxpool") {
                 MaxPool2DImpl seq_imp = *(dynamic_cast<MaxPool2DImpl *>(_model.ptr()->ptr(i).get()));
                 x = seq_imp.forward(x);
                 outputs[configPos] = x;
                 i++;
             }
-            if(layer_type == "upsample") {
+            if (layer_type == "upsample") {
                 UpsampleLayerImpl seq_imp = *(dynamic_cast<UpsampleLayerImpl *>(_model.ptr()->ptr(i).get()));
                 x = seq_imp.forward(x);
                 outputs[configPos] = x;
                 i++;
-            }
-            else if (layer_type == "route")
-            {
+            } else if (layer_type == "route") {
                 string layers_info = get_string_from_cfg(block, "layers", "");
 
                 std::vector<string> layers;
@@ -456,12 +461,9 @@ public:
 
                 if (start > 0) start = start - i;
 
-                if (end == 0)
-                {
+                if (end == 0) {
                     x = outputs[configPos + start];
-                }
-                else
-                {
+                } else {
                     if (end > 0) end = end - i;
 
                     torch::Tensor map_1 = outputs[configPos + start];
@@ -472,17 +474,13 @@ public:
 
                 outputs[configPos] = x;
                 i++;
-            }
-            else if (layer_type == "shortcut")
-            {
+            } else if (layer_type == "shortcut") {
                 int from = std::stoi(block["from"]);
-                x = outputs[configPos-1] + outputs[configPos+from];
+                x = outputs[configPos - 1] + outputs[configPos + from];
                 outputs[configPos] = x;
 
                 i++; // skip corresponding identity layer in module list
-            }
-            else if (layer_type == "yolo")
-            {
+            } else if (layer_type == "yolo") {
                 DetectionLayerImpl seq_imp = *(dynamic_cast<DetectionLayerImpl *>(_model.ptr()->ptr(i).get()));
                 i++;
 
@@ -492,17 +490,14 @@ public:
 
                 x = seq_imp.forward(x);
 
-                if (write == 0)
-                {
+                if (write == 0) {
                     result = x;
                     write = 1;
-                }
-                else
-                {
-                    result = torch::cat({result,x}, 1);
+                } else {
+                    result = torch::cat({result, x}, 1);
                 }
 
-                outputs[configPos] = outputs[configPos-1];
+                outputs[configPos] = outputs[configPos - 1];
             }
         }
         return result;
@@ -516,7 +511,6 @@ private:
     Drawer _drawer;
     int _inputImgSize;
     torch::nn::Sequential _model;
-    int _input_dim;
 };
 
 #endif //CHIPSYOLOV3_LIBTORCH_MODEL_HPP

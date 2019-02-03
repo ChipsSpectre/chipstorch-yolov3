@@ -14,10 +14,10 @@ int main() {
     }
     torch::Device device(device_type);
 
-    std::string configPath = "../cfg/yolov3.cfg";
+    std::string configPath = "../cfg/yolov3-tiny.cfg";
     Yolo yolo(configPath, device, 416);
 
-    yolo.loadWeights("../models/yolov3.weights");
+    yolo.loadWeights("../models/yolov3-tiny.weights");
     std::cout << "loaded weights." << std::endl;
 
     int i = 0;
