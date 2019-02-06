@@ -17,8 +17,6 @@ int main() {
     std::string configPath = "../cfg/yolov3-tiny.cfg";
     Yolo yolo(configPath, device, 416);
 
-    yolo.loadWeights("../models/yolov3-tiny.weights");
-    std::cout << "loaded weights." << std::endl;
 
     int i = 0;
     for(auto& layer : yolo.model()->modules()) {
@@ -26,20 +24,15 @@ int main() {
         i++;
     }
 
+    yolo.loadWeights("../models/yolov3-tiny.weights");
+    std::cout << "loaded weights." << std::endl;
+
     std::cout << yolo.size() << std::endl;
 
     yolo.toDevice();
 
     torch::NoGradGuard no_grad;
     yolo.eval();
-
-    yolo.inferBoundingBox("/home/hornung/person.jpg");
-    yolo.inferBoundingBox("/home/hornung/person.jpg");
-    yolo.inferBoundingBox("/home/hornung/person.jpg");
-    yolo.inferBoundingBox("/home/hornung/person.jpg");
-    yolo.inferBoundingBox("/home/hornung/person.jpg");
-
-    yolo.inferBoundingBox("/home/hornung/person.jpg");
 
     return 0;
 }

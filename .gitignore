@@ -2,3 +2,4 @@ cmake-build*
 .idea/*
 thirdparty/*
 models/*
+data/*
