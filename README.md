@@ -50,10 +50,15 @@ the class **Net** in ***cifar10.cpp*** with your more sophisticated model to eli
 
 - Yolov3 sample
 
+First, download the weights of (tiny-) yolov3 into the **models/** folder.
+
+    cd models
+    wget https://pjreddie.com/media/files/yolov3-tiny.weights 
+
 In order to run yolov3 inference on an image of your choice, execute the following command.
 
     cd build
-    ./yolov3 <path_to_your_image>
+    ./chipsYoloRunner <path_to_your_image>
     
 The result will be stored as the image **out.png** in the build folder.
     

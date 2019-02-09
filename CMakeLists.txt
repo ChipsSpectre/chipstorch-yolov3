@@ -4,7 +4,6 @@ project(chipsYolov3_libtorch)
 set(CMAKE_CXX_STANDARD 14)
 
 set(LIBRARY_NAME "chipsYolo")
-set(EXECUTABLE_NAME "chipsYoloRunner")
 
 # include openCV
 find_package( OpenCV REQUIRED )
@@ -14,7 +13,7 @@ if(NOT CMAKE_PREFIX_PATH)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/libtorch/build-version")
         message("pytorch already installed.")
     else()
-        execute_process(COMMAND wget https://download.pytorch.org/libtorch/nightly/cpu/libtorch-shared-with-deps-latest.zip)
+         execute_process(COMMAND wget https://download.pytorch.org/libtorch/nightly/cpu/libtorch-shared-with-deps-latest.zip)
         message("downloaded pytorch lib.")
         execute_process(COMMAND unzip libtorch-shared-with-deps-latest.zip -d ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty)
         message("unpacked pytorch lib zip-file.")
@@ -43,5 +42,8 @@ install(DIRECTORY include/${LIBRARY_NAME} DESTINATION include)
 
 include_directories(./include)
 
-add_executable(${EXECUTABLE_NAME} cifar10.cpp)
-target_link_libraries(${EXECUTABLE_NAME} chipsYolo ${TORCH_LIBRARIES} ${OpenCV_LIBS})
+add_executable(cifar10 cifar10.cpp)
+target_link_libraries(cifar10 ${TORCH_LIBRARIES})
+
+add_executable(chipsYoloRunner chipsYoloRunner.cpp)
+target_link_libraries(chipsYoloRunner ${TORCH_LIBRARIES} ${OpenCV_LIBS})
