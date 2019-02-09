@@ -43,5 +43,5 @@ install(DIRECTORY include/${LIBRARY_NAME} DESTINATION include)
 
 include_directories(./include)
 
-add_executable(${EXECUTABLE_NAME} main.cpp)
+add_executable(${EXECUTABLE_NAME} cifar10.cpp)
 target_link_libraries(${EXECUTABLE_NAME} chipsYolo ${TORCH_LIBRARIES} ${OpenCV_LIBS})

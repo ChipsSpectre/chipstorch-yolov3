@@ -31,5 +31,32 @@ If you do not have installed the pytorch c++ frontend:
     cmake -DCMAKE_BUILD_TYPE=Release ../
     make -j4
     
+## Usage
+
+- Cifar10 Sample
+
+The first libtorch implementation of a Cifar10 data loader is used in this program to predict 
+the labels of cifar10 images. Download the data using ***download_cifar10.py*** first.
+
+    cd build
+    ./cifar10 
+    
+For visualization run the following command:
+
+    python3 view_cifar10.py build/
+    
+The network used is really simple because this an example repository - feel free to replace 
+the class **Net** in ***cifar10.cpp*** with your more sophisticated model to eliminate errors.
+
+- Yolov3 sample
+
+In order to run yolov3 inference on an image of your choice, execute the following command.
+
+    cd build
+    ./yolov3 <path_to_your_image>
+    
+The result will be stored as the image **out.png** in the build folder.
+    
+ 
  ## Contributions / suggestions welcome!
  
